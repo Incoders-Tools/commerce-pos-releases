@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Descargar el punto de venta Incoders Commerce</title>
+<meta name="description" content="Descargá e instalá el punto de venta Incoders Commerce para Windows 10 y 11 (64 bits). Se instala con doble clic y después se actualiza solo.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Punto de venta Incoders Commerce">
+<meta property="og:description" content="Descargá e instalá el punto de venta para Windows 10 y 11. Se actualiza solo.">
+<meta property="og:url" content="https://incoders-tools.github.io/commerce-pos-releases/">
+<meta property="og:site_name" content="Incoders Commerce">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="main.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <img class="logo" src="icon.svg" width="72" height="72" alt="">
+    <p class="brand">Incoders Commerce</p>
+    <h1>Punto de venta</h1>
+    <p class="tagline">Para computadoras con Windows 10 u 11. Se instala con doble clic y después se actualiza solo.</p>
+
+    <!-- Without JavaScript, or when the GitHub API cannot be reached, both buttons open the releases
+         page. main.js turns them into direct downloads of the setup zip of the newest release of each kind. -->
+    <div class="downloads">
+      <a id="prod" class="download primary" href="https://github.com/Incoders-Tools/commerce-pos-releases/releases">
+        <svg class="download-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="download-text">
+          <span class="download-label">Descargar el punto de venta</span>
+          <span id="prod-detail" class="download-detail">Versión para usar en el local</span>
+        </span>
+      </a>
+      <a id="test" class="download secondary" href="https://github.com/Incoders-Tools/commerce-pos-releases/releases">
+        <svg class="download-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="download-text">
+          <span class="download-label">Descargar versión de pruebas</span>
+          <span id="test-detail" class="download-detail">Para probar: sus ventas no son reales</span>
+        </span>
+      </a>
+    </div>
+    <p id="status" class="note" role="status">Los botones abren la página de descargas. Ahí bajá el archivo que empieza con <strong>commerce-pos-setup</strong> y termina en <strong>.zip</strong>; la versión de pruebas es la marcada como <strong>Pre-release</strong>.</p>
+    <p class="meta">Windows 10 (versión 2004 o posterior) u 11, de 64 bits</p>
+  </header>
+
+  <section class="card" aria-labelledby="steps-title">
+    <h2 id="steps-title">Cómo instalarlo</h2>
+    <ol class="steps">
+      <li>Hacé clic en el botón de arriba y esperá a que termine la descarga. Se guarda en la carpeta <strong>Descargas</strong>.</li>
+      <li>Abrí la carpeta <strong>Descargas</strong>, hacé clic derecho sobre el archivo descargado y elegí <strong>Extraer todo…</strong> y después <strong>Extraer</strong>. No abras los archivos desde adentro del archivo comprimido.</li>
+      <li>En la carpeta que se abre, hacé doble clic en <strong>Instalar Commerce POS</strong>. Si Windows avisa que el archivo viene de internet, elegí <strong>Ejecutar</strong>.</li>
+      <li>Si Windows pregunta si permitís que haga cambios en el equipo, elegí <strong>Sí</strong>. Si pide una contraseña, la escribe quien administra la computadora. Lo pregunta una sola vez por computadora.</li>
+      <li>Cuando la ventana diga <strong>Listo: abrí Commerce POS desde el menú Inicio.</strong>, apretá cualquier tecla para cerrarla.</li>
+      <li>Abrí <strong>Incoders Commerce POS</strong> desde el menú Inicio. La primera vez aparece <strong>Configurar terminal</strong>: elegí <strong>Pruebas</strong> o <strong>Producción</strong> (la misma que descargaste), entrá con tu usuario de la web de Incoders Commerce y elegí la sucursal si te lo pide. Ya podés vender.</li>
+    </ol>
+    <p class="good-news">Después no hace falta volver a esta página: el punto de venta busca versiones nuevas y se actualiza solo, nunca en medio de una venta.</p>
+  </section>
+
+  <section class="card" aria-labelledby="help-title">
+    <h2 id="help-title">¿Problemas?</h2>
+    <dl class="faq">
+      <dt>Dice que el archivo está <strong>dañado</strong>, <strong>no está firmado</strong> o <strong>no es el esperado</strong></dt>
+      <dd>La descarga quedó incompleta. Borrá el archivo y la carpeta, descargalo de nuevo desde esta página y repetí los pasos.</dd>
+      <dt>Dice que <strong>falta</strong> un archivo</dt>
+      <dd>Se abrió desde adentro del archivo comprimido. Hacé <strong>Extraer todo…</strong> y hacé doble clic en <strong>Instalar Commerce POS</strong> dentro de la carpeta extraída.</dd>
+      <dt>Dice que <strong>no se otorgó el permiso</strong> o que <strong>Commerce POS está abierto</strong></dt>
+      <dd>Cerrá el punto de venta (sin ninguna venta a medio hacer), volvé a hacer doble clic en <strong>Instalar Commerce POS</strong> y, cuando Windows pregunte, elegí <strong>Sí</strong>.</dd>
+    </dl>
+    <p class="tip">¿Sigue sin funcionar? Sacale una foto a la ventana y enviásela a Incoders.</p>
+  </section>
+</main>
+
+<footer>
+  <nav aria-label="Enlaces">
+    <a href="https://github.com/Incoders-Tools/commerce-pos-releases/releases">Todas las versiones</a>
+  </nav>
+  <p>Esta página no usa cookies ni rastreadores.</p>
+</footer>
+</body>
+</html>
