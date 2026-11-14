@@ -55,17 +55,15 @@ jobs:
       POS_SIGNING_PFX_BASE64: ${{ secrets.POS_SIGNING_PFX_BASE64 }}
       POS_SIGNING_PFX_PASSWORD: ${{ secrets.POS_SIGNING_PFX_PASSWORD }}
     steps:
-      - name: Require the secrets
+      - name: Require the source key
         shell: pwsh
         env:
           SOURCE_DEPLOY_KEY: ${{ secrets.SOURCE_DEPLOY_KEY }}
         run: |
-          $missing = @('SOURCE_DEPLOY_KEY', 'POS_SIGNING_PFX_BASE64', 'POS_SIGNING_PFX_PASSWORD' |
-            Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
-          foreach ($name in $missing) {
-            Write-Output "::error::Missing secret $name of this repository (deploy/pos-release-public/README.md in incoders-commerce)."
+          if ([string]::IsNullOrWhiteSpace($env:SOURCE_DEPLOY_KEY)) {
+            Write-Output "::error::Missing secret SOURCE_DEPLOY_KEY of this repository (deploy/pos-release-public/README.md in incoders-commerce)."
+            exit 1
           }
-          if ($missing) { exit 1 }
 
       - name: Check out the POS source (staging for pilot, main for stable)
         uses: actions/checkout@v4
@@ -105,6 +103,17 @@ jobs:
           }
           if (-not $publish) { Write-Host "Nothing new for channel $($env:CHANNEL): $($last.tagName) already has this POS code." }
           "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Require the signing secrets
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $missing = @('POS_SIGNING_PFX_BASE64', 'POS_SIGNING_PFX_PASSWORD' |
+            Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          foreach ($name in $missing) {
+            Write-Output "::error::Missing secret $name of this repository (deploy/pos-release-public/README.md in incoders-commerce)."
+          }
+          if ($missing) { exit 1 }
 
       - name: Resolve the version (one past the highest published run number)
         id: meta
