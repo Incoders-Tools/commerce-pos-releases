@@ -1,0 +1,226 @@
+name: POS Release
+
+# Builds, signs and publishes the Commerce POS from the private source repository, in THIS public repository, where
+# GitHub Actions minutes are free (odd/tasks/ci-minutes-and-pos-auto-release T2, owner S1-S3, 2026-11-14).
+# Source of truth: deploy/pos-release-public/pos-release.yml in Incoders-Tools/incoders-commerce; this file is copied
+# to .github/workflows/pos-release.yml of Incoders-Tools/commerce-pos-releases (deploy/pos-release-public/README.md).
+#
+# Who starts it (nothing else can: no push or pull request trigger, so a fork can never reach the secrets):
+#   - deploy/push-staging.sh, right after a push to staging that changed POS code (channel pilot);
+#   - a person or agent with "Run workflow" (pilot or stable; stable after a merge into main);
+#   - a daily check at 07:00 UTC (pilot only): publishes staging when POS code changed since the newest pilot
+#     release and nobody started it, so terminals never wait for a person. A run with nothing new ends in seconds.
+#
+# It publishes only when POS code (the paths below) changed since the channel's newest release, whose notes say the
+# source commit it was built from ("Source commit: <sha>"); "force" publishes anyway.
+#
+# Secrets of this repository (Settings > Secrets and variables > Actions):
+#   SOURCE_DEPLOY_KEY          private half of a READ-ONLY deploy key of Incoders-Tools/incoders-commerce
+#   POS_SIGNING_PFX_BASE64     base64 of the code-signing PFX (the certificate terminals pin)
+#   POS_SIGNING_PFX_PASSWORD   its password
+# Variable (optional): POS_CLOUD_API_BASE_URL_STABLE, the production address baked into the package once it is live.
+# The release itself is written with this repository's own GITHUB_TOKEN (permissions: contents: write).
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "pilot = staging (prerelease), stable = main (release)"
+        type: choice
+        options: [pilot, stable]
+        default: pilot
+      force:
+        description: "Publish even if no POS code changed since the channel's newest release"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC = 04:00 in Argentina: pilot, only when staging has unpublished POS code
+
+permissions:
+  contents: write
+
+# One publication at a time: versions must move forward one by one.
+concurrency:
+  group: pos-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'pilot' }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+      RELEASES_REPOSITORY: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      POS_SIGNING_PFX_BASE64: ${{ secrets.POS_SIGNING_PFX_BASE64 }}
+      POS_SIGNING_PFX_PASSWORD: ${{ secrets.POS_SIGNING_PFX_PASSWORD }}
+    steps:
+      - name: Require the secrets
+        shell: pwsh
+        env:
+          SOURCE_DEPLOY_KEY: ${{ secrets.SOURCE_DEPLOY_KEY }}
+        run: |
+          $missing = @('SOURCE_DEPLOY_KEY', 'POS_SIGNING_PFX_BASE64', 'POS_SIGNING_PFX_PASSWORD' |
+            Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          foreach ($name in $missing) {
+            Write-Output "::error::Missing secret $name of this repository (deploy/pos-release-public/README.md in incoders-commerce)."
+          }
+          if ($missing) { exit 1 }
+
+      - name: Check out the POS source (staging for pilot, main for stable)
+        uses: actions/checkout@v4
+        with:
+          repository: Incoders-Tools/incoders-commerce
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel == 'stable') && 'main' || 'staging' }}
+          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide whether there is POS code to publish
+        id: decide
+        shell: pwsh
+        run: |
+          $source = (git rev-parse HEAD).Trim()
+          "source=$source" >> $env:GITHUB_OUTPUT
+          # The channel's newest release: pilot = prereleases (-rc.N), stable = releases.
+          $releases = gh release list --repo $env:RELEASES_REPOSITORY --limit 100 --json tagName,isPrerelease,createdAt |
+            ConvertFrom-Json | Where-Object { $_.isPrerelease -eq ($env:CHANNEL -eq 'pilot') } |
+            Sort-Object createdAt -Descending
+          $last = $releases | Select-Object -First 1
+          $built = $null
+          if ($last) {
+            $notes = gh release view $last.tagName --repo $env:RELEASES_REPOSITORY --json body --jq .body
+            $match = [regex]::Match("$notes", 'Source commit: ([0-9a-f]{40})')
+            if ($match.Success) { $built = $match.Groups[1].Value }
+          }
+          $publish = $true
+          if ($env:FORCE -ne 'true' -and $built) {
+            git cat-file -e "$built^{commit}" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              $changed = @(git diff --name-only $built $source -- src/Commerce.Pos.Windows src/Commerce.BranchNode `
+                src/Commerce.Updater src/Commerce.Domain src/Commerce.Application deploy/release)
+              if ($changed.Count -eq 0) { $publish = $false }
+              Write-Host "$($changed.Count) POS file(s) changed since $($last.tagName) (built from $built)."
+            }
+          }
+          if (-not $publish) { Write-Host "Nothing new for channel $($env:CHANNEL): $($last.tagName) already has this POS code." }
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve the version (one past the highest published run number)
+        id: meta
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $tags = @(gh release list --repo $env:RELEASES_REPOSITORY --limit 100 --json tagName --jq '.[].tagName')
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::Could not list the releases; nothing is published."; exit 1 }
+          $highest = 0
+          foreach ($tag in $tags) {
+            $m = [regex]::Match($tag, '^v?\d+\.\d+\.(\d+)')
+            if ($m.Success -and [int]$m.Groups[1].Value -gt $highest) { $highest = [int]$m.Groups[1].Value }
+          }
+          $branch = if ($env:CHANNEL -eq 'stable') { 'main' } else { 'staging' }
+          ./deploy/release/resolve-pos-release.ps1 -EventName push -RefName $branch -RunNumber ($highest + 1) `
+            -ExistingTags ($tags -join ' ')
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Publication gate (.github/release-authorization.yml of the source)
+        if: steps.decide.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAG=$(awk -v channel="$CHANNEL" '
+            $0 ~ "^  "channel":" { in_channel=1; next }
+            in_channel && /^  [a-zA-Z]/ { in_channel=0 }
+            in_channel && /publication_authorized:/ { gsub(/^[ \t]+publication_authorized:[ \t]*/, ""); print; exit }
+          ' .github/release-authorization.yml)
+          if [ "$FLAG" != "true" ]; then
+            echo "::error::Publication for channel '$CHANNEL' is not authorized (publication_authorized: ${FLAG:-missing})."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.decide.outputs.publish == 'true'
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build and test POS-relevant projects
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          dotnet build src/Commerce.Pos.Windows/Commerce.Pos.Windows.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "POS build failed" }
+          dotnet test tests/Commerce.Upgrade/Commerce.Upgrade.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Commerce.Upgrade tests failed" }
+          dotnet test tests/Commerce.Bootstrap.Tests/Commerce.Bootstrap.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Commerce.Bootstrap tests failed" }
+
+      - name: Build and sign the MSIX
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRODUCTION_CLOUD_API_BASE_URL: ${{ vars.POS_CLOUD_API_BASE_URL_STABLE }}
+        run: |
+          $production = "$env:PRODUCTION_CLOUD_API_BASE_URL".Trim()
+          $pfx = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:POS_SIGNING_PFX_BASE64))
+          try {
+            ./deploy/release/build-pos-msix.ps1 `
+              -Version $env:VERSION `
+              -Channel $env:CHANNEL `
+              -PfxPath $pfx `
+              -OutputDir "$env:GITHUB_WORKSPACE/artifacts" `
+              -UpdateRepository $env:RELEASES_REPOSITORY `
+              -StagingCloudApiBaseUrl 'https://app.staging.vaca-verde.com.ar' `
+              -ProductionCloudApiBaseUrl $production
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify the signer and write the manifest and the setup bundle
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          $info = Get-Content artifacts/build-info.json -Raw | ConvertFrom-Json
+          $sig = Get-AuthenticodeSignature (Join-Path artifacts $info.file)
+          if (-not $sig.SignerCertificate) { throw "MSIX has no signature: $($sig.Status)" }
+          $signer = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($sig.SignerCertificate.RawData)).Replace('-', '')
+          if ($signer -ne $info.signerSha256) { throw "Signer SHA-256 $signer differs from the baked pin $($info.signerSha256)." }
+          ./deploy/release/new-release-manifest.ps1 -BuildInfoPath artifacts/build-info.json `
+            -Repository $env:RELEASES_REPOSITORY -Tag $env:TAG -OutputPath artifacts/commerce-pos-release-manifest.json
+          ./deploy/release/new-pos-setup-bundle.ps1 -BuildInfoPath artifacts/build-info.json -OutputDir artifacts
+
+      - name: Publish the release
+        if: steps.decide.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          SOURCE: ${{ steps.decide.outputs.source }}
+        run: |
+          $info = Get-Content artifacts/build-info.json -Raw | ConvertFrom-Json
+          $notes = @(
+            "Commerce POS $($env:VERSION), channel $($env:CHANNEL).",
+            '',
+            "New terminal: download commerce-pos-setup-$($info.version).zip, extract it and double-click 'Instalar Commerce POS.cmd'.",
+            'Installed terminals take this release on their own.',
+            '',
+            "Source commit: $($env:SOURCE)"
+          ) -join "`n"
+          $ghArgs = @(
+            'release', 'create', $env:TAG,
+            (Join-Path artifacts $info.file),
+            'artifacts/commerce-pos-release-manifest.json',
+            (Join-Path artifacts $info.certificateFile),
+            "artifacts/commerce-pos-setup-$($info.version).zip",
+            '--repo', $env:RELEASES_REPOSITORY,
+            '--title', "POS $($env:VERSION) ($($env:CHANNEL))",
+            '--notes', $notes
+          )
+          if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+          gh @ghArgs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "Published $($env:TAG) from $($env:SOURCE)."
